@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { useState, useRef, useCallback, useEffect } from "react";
-import { Upload, X, Loader2, FileText, ImagePlus } from "lucide-react";
+import { Upload, X, Loader2, FileText, ImagePlus, MapPin, Plus, ChevronDown, ChevronUp, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { cn } from "@/lib/utils";
@@ -10,6 +10,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { LatLng } from "@/components/map/center-pin-map";
 import { useMyRestaurant, useUpdateMyRestaurant } from "@/features/restaurant/hooks";
+import { useOutlets, useCreateOutlet, useUpdateOutlet, useDeleteOutlet } from "@/features/restaurant/outlet-hooks";
+import type { Outlet as OutletType } from "@/features/restaurant/outlet-api";
 import { uploadMedia } from "@/features/media/api";
 import type { components } from "@/types/api.generated";
 
@@ -193,25 +195,103 @@ function GalleryUpload({ items, onChange }: {
   );
 }
 
-// ─── Page ────────────────────────────────────────────────────────────────────
+// ─── Outlets ─────────────────────────────────────────────────────────────────
 
 const DEFAULT_POSITION: LatLng = { lat: 49.4432, lng: 1.0993 };
+
+function OutletCard({ outlet }: { outlet: OutletType }) {
+  const { mutate: update, isPending: isSaving } = useUpdateOutlet();
+  const { mutate: remove, isPending: isDeleting } = useDeleteOutlet();
+
+  const [open, setOpen]   = useState(false);
+  const [name, setName]   = useState(outlet.name);
+  const [pos, setPos]     = useState<LatLng>({
+    lat: outlet.latitude  ?? DEFAULT_POSITION.lat,
+    lng: outlet.longitude ?? DEFAULT_POSITION.lng,
+  });
+
+  const isDirty = name !== outlet.name || pos.lat !== (outlet.latitude ?? DEFAULT_POSITION.lat) || pos.lng !== (outlet.longitude ?? DEFAULT_POSITION.lng);
+
+  function handleSave() {
+    update(
+      { id: outlet.id, name, latitude: pos.lat, longitude: pos.lng },
+      { onSuccess: () => toast.success("Point de vente mis à jour."), onError: () => toast.error("Une erreur est survenue.") },
+    );
+  }
+
+  return (
+    <div className="rounded-lg border bg-card">
+      <div className="flex items-center gap-3 px-4 py-3">
+        <span className="flex h-7 w-7 items-center justify-center rounded-md bg-muted text-muted-foreground">
+          <MapPin className="h-3.5 w-3.5" />
+        </span>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium truncate">{outlet.name || "Sans nom"}</p>
+          {outlet.formattedAddress && (
+            <p className="text-xs text-muted-foreground truncate">{outlet.formattedAddress}</p>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={() => remove(outlet.id, { onSuccess: () => toast.success("Point de vente supprimé.") })}
+          disabled={isDeleting}
+          className="text-muted-foreground hover:text-red-500 transition-colors p-1 disabled:opacity-40"
+        >
+          {isDeleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+        </button>
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="text-muted-foreground hover:text-foreground transition-colors p-1"
+        >
+          {open ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+        </button>
+      </div>
+
+      {open && (
+        <div className="border-t px-4 pb-4 pt-3 space-y-3">
+          <div className="space-y-1.5">
+            <Label className="text-xs text-muted-foreground">Nom du point de vente</Label>
+            <Input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Ex : Centre-ville, Saint-Sever…"
+              className="h-8 text-sm"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs text-muted-foreground">Position</Label>
+            <div className="rounded-lg overflow-hidden border h-52">
+              <CenterPinMap initialPosition={pos} onPositionChange={setPos} />
+            </div>
+          </div>
+          <div className="flex justify-end">
+            <Button size="sm" disabled={!isDirty || isSaving || !name.trim()} onClick={handleSave} className="gap-1.5">
+              {isSaving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              Enregistrer
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Page ────────────────────────────────────────────────────────────────────
 
 export default function RestaurantPage() {
   const { data: restaurant, isLoading } = useMyRestaurant();
   const { mutateAsync: updateRestaurant, isPending: isSaving } = useUpdateMyRestaurant();
+  const { data: outlets = [], isLoading: outletsLoading } = useOutlets();
+  const { mutate: createOutlet, isPending: isCreating } = useCreateOutlet();
 
   const [name, setName]                 = useState('');
-  const [position, setPosition]         = useState<LatLng>(DEFAULT_POSITION);
   const [galleryItems, setGalleryItems] = useState<GalleryItem[]>([]);
   const [initialized, setInitialized]   = useState(false);
 
   useEffect(() => {
     if (restaurant && !initialized) {
       setName(restaurant.name);
-      if (restaurant.latitude && restaurant.longitude) {
-        setPosition({ lat: restaurant.latitude, lng: restaurant.longitude });
-      }
       setGalleryItems((restaurant.medias ?? []).map(makeExistingItem));
       setInitialized(true);
     }
@@ -223,8 +303,6 @@ export default function RestaurantPage() {
 
   const isDirty = initialized && (
     name !== (restaurant?.name ?? '') ||
-    position.lat !== (restaurant?.latitude ?? DEFAULT_POSITION.lat) ||
-    position.lng !== (restaurant?.longitude ?? DEFAULT_POSITION.lng) ||
     mediasChanged
   );
 
@@ -244,7 +322,7 @@ export default function RestaurantPage() {
         setGalleryItems((prev) => prev.filter((item) => item.type === 'existing'));
       }
 
-      const updated = await updateRestaurant({ name, latitude: position.lat, longitude: position.lng, mediaIds });
+      const updated = await updateRestaurant({ name, mediaIds });
       if (updated?.medias) setGalleryItems(updated.medias.map(makeExistingItem));
       toast.success("Modifications enregistrées.");
     } catch {
@@ -309,22 +387,34 @@ export default function RestaurantPage() {
 
         <Separator />
 
-        {/* ── Localisation ── */}
+        {/* ── Points de vente ── */}
         <Section
-          title="Localisation"
-          description="Déplacez la carte pour positionner l'épingle sur votre restaurant. Les coordonnées sont enregistrées automatiquement."
+          title="Points de vente"
+          description="Chaque point de vente apparaît comme un épingle distinct sur la carte de l'application mobile."
         >
-          <div className="rounded-xl overflow-hidden border h-72">
-            {initialized ? (
-              <CenterPinMap
-                initialPosition={position}
-                onPositionChange={setPosition}
-              />
-            ) : (
-              <div className="h-full flex items-center justify-center bg-muted/20">
-                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          <div className="space-y-3">
+            {outletsLoading ? (
+              <div className="space-y-2">
+                {[1, 2].map((i) => <div key={i} className="h-14 rounded-lg bg-muted animate-pulse" />)}
               </div>
+            ) : (
+              outlets.map((outlet) => <OutletCard key={outlet.id} outlet={outlet} />)
             )}
+
+            <button
+              type="button"
+              disabled={isCreating}
+              onClick={() =>
+                createOutlet(
+                  { name: "Nouveau point de vente", latitude: DEFAULT_POSITION.lat, longitude: DEFAULT_POSITION.lng },
+                  { onError: () => toast.error("Une erreur est survenue.") },
+                )
+              }
+              className="flex w-full items-center justify-center gap-2 rounded-lg border-2 border-dashed border-muted-foreground/25 py-3 text-xs text-muted-foreground hover:border-muted-foreground/40 hover:text-foreground transition-all disabled:opacity-40"
+            >
+              {isCreating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+              Ajouter un point de vente
+            </button>
           </div>
         </Section>
 
