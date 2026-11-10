@@ -7,8 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "api:types": "openapi-typescript http://localhost:3002/docs-json -o ./types/api.generated.ts",
-    "media:types": "openapi-typescript http://localhost:3003/docs-json -o ./types/media.generated.ts"
+    "api:types": "openapi-typescript http://localhost:3080/docs-json -o ./types/api.generated.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

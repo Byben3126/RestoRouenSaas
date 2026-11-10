@@ -1,45 +1,39 @@
 import { apiClient } from '@/lib/api-client';
-import type { ApiResponse } from '@/types/api';
+import { reverseGeocode } from '@/lib/geocoding';
+import type { components } from '@/types/api.generated';
 
-export type Outlet = {
-  id: string;
-  name: string;
-  latitude?: number;
-  longitude?: number;
-  formattedAddress?: string;
-  placeId?: string;
-  googleMyBusinessLink?: string;
-  isActive: boolean;
-  createdAt: string;
-  updatedAt: string;
+export type Outlet = components['schemas']['OutletDto'];
+export type CreateOutletPayload = components['schemas']['CreateOutletDto'];
+/**
+ * placeId null = établissement absent de Google : l'API efface le lien et ne le recherche plus.
+ * (null est accepté par @IsOptional côté API, mais le DTO Swagger ne le déclare pas nullable.)
+ */
+export type UpdateOutletPayload = Omit<components['schemas']['UpdateOutletDto'], 'placeId'> & {
+  placeId?: string | null;
 };
-
-export type CreateOutletPayload = {
-  name: string;
-  latitude?: number;
-  longitude?: number;
-  formattedAddress?: string;
-  placeId?: string;
-  googleMyBusinessLink?: string;
-};
-
-export type UpdateOutletPayload = Partial<CreateOutletPayload & { isActive: boolean }>;
 
 const BASE = '/restaurant/me/outlets';
 
+/** Complète formattedAddress à partir des coordonnées quand elles sont envoyées sans adresse. */
+async function withFormattedAddress<T extends CreateOutletPayload | UpdateOutletPayload>(payload: T): Promise<T> {
+  if (payload.formattedAddress || payload.latitude == null || payload.longitude == null) return payload;
+  const formattedAddress = await reverseGeocode(payload.latitude, payload.longitude);
+  return formattedAddress ? { ...payload, formattedAddress } : payload;
+}
+
 export async function fetchOutlets(): Promise<Outlet[]> {
-  const { data } = await apiClient.get<ApiResponse<Outlet[]>>(BASE);
-  return data.data;
+  const { data } = await apiClient.get<Outlet[]>(BASE);
+  return data;
 }
 
 export async function createOutlet(payload: CreateOutletPayload): Promise<Outlet> {
-  const { data } = await apiClient.post<ApiResponse<Outlet>>(BASE, payload);
-  return data.data;
+  const { data } = await apiClient.post<Outlet>(BASE, await withFormattedAddress(payload));
+  return data;
 }
 
 export async function updateOutlet(id: string, payload: UpdateOutletPayload): Promise<Outlet> {
-  const { data } = await apiClient.patch<ApiResponse<Outlet>>(`${BASE}/${id}`, payload);
-  return data.data;
+  const { data } = await apiClient.patch<Outlet>(`${BASE}/${id}`, await withFormattedAddress(payload));
+  return data;
 }
 
 export async function deleteOutlet(id: string): Promise<void> {

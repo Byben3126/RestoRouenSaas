@@ -1,26 +1,20 @@
 import { apiClient } from '@/lib/api-client';
-import type { ApiResponse } from '@/types/api';
+import type { components } from '@/types/api.generated';
 
-export interface SubscriptionData {
-  id: string;
-  plan: 'starter' | 'growth' | 'pro';
-  status: string;
-  cancelAtPeriodEnd: boolean;
-  currentPeriodEnd?: string;
-  createdAt: string;
-}
+export type SubscriptionData = components['schemas']['SubscriptionDto'];
+type SessionUrlDto = components['schemas']['SessionUrlDto'];
 
 export async function createCheckoutSession(plan: string): Promise<string> {
-  const { data } = await apiClient.post<ApiResponse<{ url: string }>>('/subscription/checkout', { plan });
-  return data.data.url;
+  const { data } = await apiClient.post<SessionUrlDto>('/subscription/checkout', { plan });
+  return data.url;
 }
 
 export async function fetchMySubscription(): Promise<SubscriptionData | null> {
-  const { data } = await apiClient.get<ApiResponse<SubscriptionData>>('/subscription');
-  return data.data;
+  const { data } = await apiClient.get<SubscriptionData>('/subscription');
+  return data;
 }
 
 export async function createPortalSession(): Promise<string> {
-  const { data } = await apiClient.post<ApiResponse<{ url: string }>>('/subscription/portal');
-  return data.data.url;
+  const { data } = await apiClient.post<SessionUrlDto>('/subscription/portal');
+  return data.url;
 }
