@@ -18,8 +18,12 @@ import {
   FieldSeparator,
 } from "@/components/ui/field"
 
+import type { components } from "@/types/api.generated"
+
 import { registerSchema, type RegisterValues } from "../schema"
 import { GoogleButton } from "./GoogleButton"
+
+type SignUpDto = components["schemas"]["SignUpDto"]
 
 export function RegisterForm({
   className,
@@ -31,7 +35,8 @@ export function RegisterForm({
   const form = useForm<RegisterValues>({
     resolver: zodResolver(registerSchema),
     defaultValues: {
-      name: "",
+      firstName: "",
+      lastName: "",
       email: "",
       password: "",
       confirmPassword: "",
@@ -41,10 +46,17 @@ export function RegisterForm({
   async function onSubmit(values: RegisterValues) {
     setError(null)
 
-    const { data, error } = await authClient.signUp.email({
+    const body: SignUpDto = {
+      firstName: values.firstName,
+      lastName: values.lastName,
       email: values.email,
       password: values.password,
-      name: values.name,
+    }
+
+    // L'API construit `name` à partir de firstName/lastName ; le client Better Auth l'exige quand même dans son typage.
+    const { error } = await authClient.signUp.email({
+      ...body,
+      name: `${body.firstName} ${body.lastName}`,
       callbackURL: "/dashboard", // Redirection après succès
     });
 
@@ -76,18 +88,35 @@ export function RegisterForm({
           </p>
         )}
 
-        <Field>
-          <FieldLabel htmlFor="name">Full Name</FieldLabel>
-          <Input 
-            {...form.register("name")}
-            id="name" 
-            type="text" 
-            placeholder="John Doe" 
-          />
-          {form.formState.errors.name && (
-            <p className="text-xs text-destructive">{form.formState.errors.name.message}</p>
-          )}
-        </Field>
+        <div className="grid grid-cols-2 gap-4">
+          <Field>
+            <FieldLabel htmlFor="firstName">First Name</FieldLabel>
+            <Input
+              {...form.register("firstName")}
+              id="firstName"
+              type="text"
+              autoComplete="given-name"
+              placeholder="John"
+            />
+            {form.formState.errors.firstName && (
+              <p className="text-xs text-destructive">{form.formState.errors.firstName.message}</p>
+            )}
+          </Field>
+
+          <Field>
+            <FieldLabel htmlFor="lastName">Last Name</FieldLabel>
+            <Input
+              {...form.register("lastName")}
+              id="lastName"
+              type="text"
+              autoComplete="family-name"
+              placeholder="Doe"
+            />
+            {form.formState.errors.lastName && (
+              <p className="text-xs text-destructive">{form.formState.errors.lastName.message}</p>
+            )}
+          </Field>
+        </div>
 
         <Field>
           <FieldLabel htmlFor="email">Email</FieldLabel>
