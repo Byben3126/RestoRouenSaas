@@ -2,13 +2,16 @@
 
 import dynamic from "next/dynamic";
 import { useState, useRef, useCallback, useEffect } from "react";
-import { Upload, X, Loader2, FileText, ImagePlus, MapPin, Plus, ChevronDown, ChevronUp, Trash2 } from "lucide-react";
+import {
+  Upload, X, Loader2, FileText, ImagePlus, MapPin, Plus, ChevronDown, ChevronUp, Trash2, BadgeCheck, Search, ArrowUpRight,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { LatLng } from "@/components/map/center-pin-map";
+import { GooglePlaceSearch, type GooglePlace } from "@/components/map/google-place-search";
 import { useMyRestaurant, useUpdateMyRestaurant } from "@/features/restaurant/hooks";
 import { useOutlets, useCreateOutlet, useUpdateOutlet, useDeleteOutlet } from "@/features/restaurant/outlet-hooks";
 import type { Outlet as OutletType } from "@/features/restaurant/outlet-api";
@@ -198,23 +201,174 @@ function GalleryUpload({ items, onChange }: {
 // ─── Outlets ─────────────────────────────────────────────────────────────────
 
 const DEFAULT_POSITION: LatLng = { lat: 49.4432, lng: 1.0993 };
+const DEFAULT_OUTLET_NAME = "Nouveau point de vente";
 
-function OutletCard({ outlet }: { outlet: OutletType }) {
+/** Lien Google Maps officiel vers une fiche (le texte sert de repli si le place_id n'est plus valide). */
+function googleMapsUrl(placeId: string, query: string) {
+  return `https://www.google.com/maps/search/?${new URLSearchParams({ api: "1", query, query_place_id: placeId })}`;
+}
+
+/** Vignette de carte dessinée à la main : rappelle Google Maps sans tuile ni logo Google. */
+function MiniMap({ linked }: { linked: boolean }) {
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "size-[46px] shrink-0 overflow-hidden rounded-lg ring-1 ring-border transition-all duration-300",
+        !linked && "opacity-[0.55] grayscale",
+      )}
+    >
+      <svg viewBox="0 0 46 46" className="block size-full">
+        <rect width="46" height="46" className="fill-[oklch(0.95_0.012_120)] dark:fill-[oklch(0.3_0.01_120)]" />
+        <rect x="27" y="-2" width="22" height="17" rx="3" className="fill-[oklch(0.88_0.07_145)] dark:fill-[oklch(0.36_0.06_145)]" />
+        <path
+          d="M-2 34 C 10 30, 18 40, 30 36 S 44 30, 48 33 L 48 48 L -2 48 Z"
+          className="fill-[oklch(0.84_0.07_235)] dark:fill-[oklch(0.35_0.06_235)]"
+        />
+        <g fill="none" className="stroke-white dark:stroke-[oklch(0.42_0.005_120)]">
+          <path d="M-2 18 L 48 24" strokeWidth="4" />
+          <path d="M17 -2 L 21 48" strokeWidth="3" />
+          <path d="M30 18 L 40 48" strokeWidth="2" />
+        </g>
+        {linked && (
+          <g className="animate-in fade-in-0 slide-in-from-top-1 duration-500">
+            <path
+              d="M23 31c-.3 0-6.5-5.6-6.5-10.5a6.5 6.5 0 0 1 13 0C29.5 25.4 23.3 31 23 31Z"
+              stroke="white"
+              strokeWidth="1.2"
+              className="fill-[oklch(0.62_0.21_25)] dark:fill-[oklch(0.7_0.19_25)]"
+            />
+            <circle cx="23" cy="20.5" r="2.3" fill="white" />
+          </g>
+        )}
+      </svg>
+    </span>
+  );
+}
+
+function GoogleMapCard({ linked, children }: { linked: boolean; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-wrap items-center gap-3 rounded-[10px] border bg-card py-2 pl-2 pr-2.5 animate-in fade-in-0 duration-300">
+      <MiniMap linked={linked} />
+      {children}
+    </div>
+  );
+}
+
+/** Le lien a changé mais n'est pas encore enregistré. */
+function UnsavedPill() {
+  return (
+    <span className="rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-400">
+      À enregistrer
+    </span>
+  );
+}
+
+/** Indique seulement que le point de vente est relié à une fiche Google (aucun appel à Google). */
+function GoogleLinked({ placeId, query, unsaved, onChange, onUnlink }: {
+  placeId: string;
+  /** Repli du lien si le place_id n'est plus valide */
+  query: string;
+  unsaved: boolean;
+  onChange: () => void;
+  onUnlink: () => void;
+}) {
+  return (
+    <GoogleMapCard linked>
+      <div className="grid min-w-0 flex-1 gap-px">
+        <p className="flex items-center gap-1.5 text-[13px] font-medium">
+          Relié à Google Maps
+          <BadgeCheck className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+          {unsaved && <UnsavedPill />}
+        </p>
+        <a
+          href={googleMapsUrl(placeId, query)}
+          target="_blank"
+          rel="noreferrer"
+          className="group inline-flex w-fit items-center gap-0.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+        >
+          Voir la fiche
+          <ArrowUpRight className="size-3 transition-transform group-hover:-translate-y-px group-hover:translate-x-px" />
+        </a>
+      </div>
+      <div className="flex items-center gap-1.5">
+        <Button type="button" variant="outline" size="xs" onClick={onChange}>
+          Changer
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="xs"
+          title="Retirer le lien avec Google"
+          onClick={onUnlink}
+          className="hover:border-transparent hover:bg-destructive/10 hover:text-destructive dark:hover:bg-destructive/15"
+        >
+          Délier
+        </Button>
+      </div>
+    </GoogleMapCard>
+  );
+}
+
+function GoogleNotLinked({ unsaved, onSearch }: { unsaved: boolean; onSearch: () => void }) {
+  return (
+    <GoogleMapCard linked={false}>
+      <div className="grid min-w-0 flex-1 gap-px">
+        <p className="flex items-center gap-1.5 text-[13px] font-medium">
+          Pas sur Google Maps
+          {unsaved && <UnsavedPill />}
+        </p>
+        <p className="text-xs text-muted-foreground">L&apos;épingle est placée à la main.</p>
+      </div>
+      <Button type="button" variant="outline" size="xs" onClick={onSearch}>
+        <Search />
+        Lier une fiche
+      </Button>
+    </GoogleMapCard>
+  );
+}
+
+function OutletCard({ outlet, defaultOpen = false }: { outlet: OutletType; defaultOpen?: boolean }) {
   const { mutate: update, isPending: isSaving } = useUpdateOutlet();
   const { mutate: remove, isPending: isDeleting } = useDeleteOutlet();
 
-  const [open, setOpen]   = useState(false);
+  const [open, setOpen]   = useState(defaultOpen);
   const [name, setName]   = useState(outlet.name);
   const [pos, setPos]     = useState<LatLng>({
     lat: outlet.latitude  ?? DEFAULT_POSITION.lat,
     lng: outlet.longitude ?? DEFAULT_POSITION.lng,
   });
+  const [focus, setFocus] = useState<LatLng>();
+  // Fiche Google : undefined = inchangée, null = établissement absent de Google
+  const [google, setGoogle]       = useState<GooglePlace | null>();
+  const [searching, setSearching] = useState(false);
 
-  const isDirty = name !== outlet.name || pos.lat !== (outlet.latitude ?? DEFAULT_POSITION.lat) || pos.lng !== (outlet.longitude ?? DEFAULT_POSITION.lng);
+  const placeId = google === undefined ? (outlet.placeId ?? null) : (google?.placeId ?? null);
+
+  const isDirty = name !== outlet.name || pos.lat !== (outlet.latitude ?? DEFAULT_POSITION.lat) || pos.lng !== (outlet.longitude ?? DEFAULT_POSITION.lng)
+    || placeId !== (outlet.placeId ?? null);
+
+  function handleGoogleSelect(place: GooglePlace) {
+    setGoogle(place);
+    setSearching(false);
+    if (place.location) {
+      setPos(place.location);
+      setFocus(place.location);
+    }
+    if (place.name && (!name.trim() || name === DEFAULT_OUTLET_NAME)) setName(place.name);
+  }
 
   function handleSave() {
     update(
-      { id: outlet.id, name, latitude: pos.lat, longitude: pos.lng },
+      {
+        id: outlet.id,
+        name,
+        latitude: pos.lat,
+        longitude: pos.lng,
+        // Toujours renvoyer le lien connu : sans placeId, l'API le recherche à nouveau d'après le nom
+        ...(google !== undefined || outlet.placeId ? { placeId } : {}),
+        ...(google?.formattedAddress ? { formattedAddress: google.formattedAddress } : {}),
+      },
       { onSuccess: () => toast.success("Point de vente mis à jour."), onError: () => toast.error("Une erreur est survenue.") },
     );
   }
@@ -226,7 +380,18 @@ function OutletCard({ outlet }: { outlet: OutletType }) {
           <MapPin className="h-3.5 w-3.5" />
         </span>
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium truncate">{outlet.name || "Sans nom"}</p>
+          <div className="flex items-center gap-2">
+            <p className="min-w-0 text-sm font-medium truncate">{outlet.name || "Sans nom"}</p>
+            {outlet.placeId && (
+              <span
+                title="Relié à Google Maps"
+                className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-400"
+              >
+                <BadgeCheck className="size-3" />
+                Google
+              </span>
+            )}
+          </div>
           {outlet.formattedAddress && (
             <p className="text-xs text-muted-foreground truncate">{outlet.formattedAddress}</p>
           )}
@@ -251,6 +416,42 @@ function OutletCard({ outlet }: { outlet: OutletType }) {
       {open && (
         <div className="border-t px-4 pb-4 pt-3 space-y-3">
           <div className="space-y-1.5">
+            <Label className="text-xs text-muted-foreground">Fiche Google</Label>
+            {/* La recherche ne s'ouvre qu'à la demande (« Lier une fiche » ou « Changer ») */}
+            {searching ? (
+              <div className="space-y-2 rounded-xl border bg-muted/30 p-3 animate-in fade-in-0 duration-300">
+                <GooglePlaceSearch
+                  near={pos}
+                  autoFocus
+                  onSelect={handleGoogleSelect}
+                  onNotListed={() => { setGoogle(null); setSearching(false); }}
+                />
+                <div className="flex items-center justify-between gap-3 text-xs">
+                  <span className="text-muted-foreground">
+                    Retrouvez votre établissement pour le lier à sa fiche Google.
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setSearching(false)}
+                    className="shrink-0 text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+                  >
+                    Annuler
+                  </button>
+                </div>
+              </div>
+            ) : placeId ? (
+              <GoogleLinked
+                placeId={placeId}
+                query={outlet.formattedAddress || name}
+                unsaved={placeId !== (outlet.placeId ?? null)}
+                onChange={() => setSearching(true)}
+                onUnlink={() => setGoogle(null)}
+              />
+            ) : (
+              <GoogleNotLinked unsaved={outlet.placeId != null} onSearch={() => setSearching(true)} />
+            )}
+          </div>
+          <div className="space-y-1.5">
             <Label className="text-xs text-muted-foreground">Nom du point de vente</Label>
             <Input
               value={name}
@@ -262,7 +463,7 @@ function OutletCard({ outlet }: { outlet: OutletType }) {
           <div className="space-y-1.5">
             <Label className="text-xs text-muted-foreground">Position</Label>
             <div className="rounded-lg overflow-hidden border h-52">
-              <CenterPinMap initialPosition={pos} onPositionChange={setPos} />
+              <CenterPinMap initialPosition={pos} focusPosition={focus} onPositionChange={setPos} />
             </div>
           </div>
           <div className="flex justify-end">
@@ -284,6 +485,7 @@ export default function RestaurantPage() {
   const { mutateAsync: updateRestaurant, isPending: isSaving } = useUpdateMyRestaurant();
   const { data: outlets = [], isLoading: outletsLoading } = useOutlets();
   const { mutate: createOutlet, isPending: isCreating } = useCreateOutlet();
+  const [createdOutletId, setCreatedOutletId] = useState<string>();
 
   const [name, setName]                 = useState('');
   const [galleryItems, setGalleryItems] = useState<GalleryItem[]>([]);
@@ -398,7 +600,9 @@ export default function RestaurantPage() {
                 {[1, 2].map((i) => <div key={i} className="h-14 rounded-lg bg-muted animate-pulse" />)}
               </div>
             ) : (
-              outlets.map((outlet) => <OutletCard key={outlet.id} outlet={outlet} />)
+              outlets.map((outlet) => (
+                <OutletCard key={outlet.id} outlet={outlet} defaultOpen={outlet.id === createdOutletId} />
+              ))
             )}
 
             <button
@@ -406,8 +610,8 @@ export default function RestaurantPage() {
               disabled={isCreating}
               onClick={() =>
                 createOutlet(
-                  { name: "Nouveau point de vente", latitude: DEFAULT_POSITION.lat, longitude: DEFAULT_POSITION.lng },
-                  { onError: () => toast.error("Une erreur est survenue.") },
+                  { name: DEFAULT_OUTLET_NAME, latitude: DEFAULT_POSITION.lat, longitude: DEFAULT_POSITION.lng },
+                  { onSuccess: (created) => setCreatedOutletId(created.id), onError: () => toast.error("Une erreur est survenue.") },
                 )
               }
               className="flex w-full items-center justify-center gap-2 rounded-lg border-2 border-dashed border-muted-foreground/25 py-3 text-xs text-muted-foreground hover:border-muted-foreground/40 hover:text-foreground transition-all disabled:opacity-40"

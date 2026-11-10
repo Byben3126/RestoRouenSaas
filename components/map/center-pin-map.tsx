@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { MapContainer, TileLayer, useMapEvents } from "react-leaflet";
+import { useEffect, useState } from "react";
+import { MapContainer, TileLayer, useMap, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -14,6 +14,8 @@ export interface LatLng {
 interface CenterPinMapProps {
   initialPosition?: LatLng;
   zoom?: number;
+  /** Recentre la carte (et donc l'épingle) à chaque nouvelle valeur. */
+  focusPosition?: LatLng;
   onPositionChange?: (pos: LatLng) => void;
 }
 
@@ -29,11 +31,20 @@ function MapEvents({ onMove }: { onMove: (pos: LatLng) => void }) {
   return null;
 }
 
+function FocusOn({ position }: { position?: LatLng }) {
+  const map = useMap();
+  useEffect(() => {
+    if (position) map.setView([position.lat, position.lng], Math.max(map.getZoom(), 17));
+  }, [map, position]);
+  return null;
+}
+
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function CenterPinMap({
   initialPosition = { lat: 49.4432, lng: 1.0993 }, // Rouen par défaut
   zoom = 15,
+  focusPosition,
   onPositionChange,
 }: CenterPinMapProps) {
   const [pos, setPos] = useState<LatLng>(initialPosition);
@@ -56,6 +67,7 @@ export default function CenterPinMap({
       >
         <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
         <MapEvents onMove={handleMove} />
+        <FocusOn position={focusPosition} />
       </MapContainer>
 
       {/* Épingle fixe au centre — hors du contexte Leaflet */}
